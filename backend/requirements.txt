@@ -1,0 +1,8 @@
+fastapi
+uvicorn[standard]
+numpy
+scipy
+matplotlib
+yfinance
+plotly
+option-pricing @ git+https://github.com/lightbender62/Option-pricing.git
