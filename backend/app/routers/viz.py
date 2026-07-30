@@ -94,7 +94,13 @@ def viz_greeks_rho(S: float, K: float, T: float, r: float, sigma: float):
 
 @router.get("/convergence/monte-carlo")
 def viz_convergence_mc(S: float, K: float, T: float, r: float, sigma: float):
-    fig = ConvergenceAnalysis(S, K, T, r, sigma).plot("mc")
+    # Capped at 20,000 paths for this deployment: the package default (up to
+    # 100,000) allocates several (252, M) float arrays each (~200MB+ at
+    # M=100000) inside a single request, which was OOM-killing this
+    # memory-constrained Railway container and crashing the whole backend
+    # process. Left as the package's own default for other consumers of
+    # option_pricing — this cap is portal-specific.
+    fig = ConvergenceAnalysis(S, K, T, r, sigma).plot("mc", mc_path_counts=[100, 500, 1000, 5000, 10000, 20000])
     return {"image": fig_to_base64(fig)}
 
 
