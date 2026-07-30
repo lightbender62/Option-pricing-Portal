@@ -25,6 +25,12 @@ type TabKey =
   | "heatmap-put";
 type Page = "config" | "results";
 
+// Max number of pricing requests allowed to be in flight at once. European
+// has 3 pricing models (vs 1-2 for other option types); throttling these
+// too — not just visualizations — reduces peak simultaneous load on
+// memory-constrained deployments.
+const PRICE_CONCURRENCY_LIMIT = 2;
+
 // Max number of visualization requests allowed to be in flight at once.
 // Pricing and Greeks always run to completion before any of these fire.
 const VIZ_CONCURRENCY_LIMIT = 2;
@@ -487,31 +493,31 @@ export default function QuantLab(_props: { prefills?: Record<string, unknown>; c
         if (runIdRef.current === runId) setExecStatus("offline");
       });
 
-    // 1) Pricing requests run first, together, and we wait for all of them
-    //    (success or failure) before moving on.
-    await Promise.allSettled(
-      MODEL_CONFIG[optionType].map((m) => {
+    // 1) Pricing requests run through the same limited-concurrency queue as
+    //    visualizations (max PRICE_CONCURRENCY_LIMIT in flight at a time), so
+    //    a model's card shows its result as soon as it resolves instead of
+    //    every model hitting the backend at the same instant. We wait for
+    //    all of them (success or failure) before moving on to Greeks.
+    const priceTasks = MODEL_CONFIG[optionType].map((m) => async () => {
+      if (runIdRef.current === runId) {
+        setPriceLoading((p) => ({ ...p, [m.key]: true }));
+      }
+      try {
+        const { data, ms } = await fetchJSON(`/api/price/${optionType}`, { ...base, ...priceExtraParams(optionType, m.key, params) });
         if (runIdRef.current === runId) {
-          setPriceLoading((p) => ({ ...p, [m.key]: true }));
+          setPriceResults((p) => ({ ...p, [m.key]: { ...data, ms } }));
         }
-        return fetchJSON(`/api/price/${optionType}`, { ...base, ...priceExtraParams(optionType, m.key, params) })
-          .then(({ data, ms }) => {
-            if (runIdRef.current === runId) {
-              setPriceResults((p) => ({ ...p, [m.key]: { ...data, ms } }));
-            }
-          })
-          .catch((e) => {
-            if (runIdRef.current === runId) {
-              setPriceError((p) => ({ ...p, [m.key]: errMsg(e) }));
-            }
-          })
-          .finally(() => {
-            if (runIdRef.current === runId) {
-              setPriceLoading((p) => ({ ...p, [m.key]: false }));
-            }
-          });
-      })
-    );
+      } catch (e) {
+        if (runIdRef.current === runId) {
+          setPriceError((p) => ({ ...p, [m.key]: errMsg(e) }));
+        }
+      } finally {
+        if (runIdRef.current === runId) {
+          setPriceLoading((p) => ({ ...p, [m.key]: false }));
+        }
+      }
+    });
+    await runWithConcurrencyLimit(priceTasks, PRICE_CONCURRENCY_LIMIT);
 
     if (runIdRef.current !== runId) return; // superseded by a newer run
 
