@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import {
   TrendingUp,
   Layers,
@@ -24,6 +24,10 @@ type TabKey =
   | "heatmap-call"
   | "heatmap-put";
 type Page = "config" | "results";
+
+// Max number of visualization requests allowed to be in flight at once.
+// Pricing and Greeks always run to completion before any of these fire.
+const VIZ_CONCURRENCY_LIMIT = 2;
 
 interface Params {
   S: string;
@@ -144,6 +148,28 @@ async function fetchJSON(path: string, query: Record<string, unknown>) {
     throw new Error(typeof detail === "string" ? detail : JSON.stringify(detail));
   }
   return { data, ms };
+}
+
+// Runs a list of async task-factories with at most `limit` running concurrently.
+// Each task is independent: one rejecting does not cancel or block the others.
+async function runWithConcurrencyLimit(tasks: (() => Promise<void>)[], limit: number): Promise<void> {
+  let cursor = 0;
+
+  const worker = async () => {
+    while (cursor < tasks.length) {
+      const index = cursor;
+      cursor += 1;
+      try {
+        await tasks[index]();
+      } catch {
+        // Each task already handles/records its own error state; swallow here
+        // so one failure can't stop the worker from picking up the next task.
+      }
+    }
+  };
+
+  const workerCount = Math.min(limit, tasks.length);
+  await Promise.all(Array.from({ length: workerCount }, () => worker()));
 }
 
 function priceExtraParams(type: OptionType, modelKey: string, p: Params): Record<string, unknown> {
@@ -369,39 +395,74 @@ export default function QuantLab(_props: { prefills?: Record<string, unknown>; c
 
   const isBusy = Object.values(priceLoading).some(Boolean) || greeksLoading;
 
+  // Bumped on every "Run Simulation" click. Any in-flight request from a
+  // previous run checks this before writing to state, so a rerun effectively
+  // cancels (ignores the results of) whatever was still in flight before it,
+  // and stale responses can never overwrite newer simulation results.
+  const runIdRef = useRef(0);
+  // Tracks which visualization cache-keys currently have a request in flight
+  // for the *current* run, so re-running or re-triggering the same card can't
+  // fire a duplicate request while one is already outstanding.
+  const inFlightVizRef = useRef<Set<string>>(new Set());
+
   const updateParam = (key: keyof Params, value: string) => setParams((p) => ({ ...p, [key]: value }));
 
   // Fetches a single visualization card's data for the given option type + tab.
   // Independent per cacheKey: a failure or in-flight request here never touches
-  // any other card's state.
-  const loadTab = async (tab: TabKey, type: OptionType = optionType) => {
+  // any other card's state. Guarded by runId so responses from a superseded
+  // run (the user clicked "Run Simulation" again) are discarded instead of
+  // overwriting fresher state.
+  const loadTab = async (tab: TabKey, runId: number, type: OptionType = optionType) => {
     const cacheKey = `${type}:${tab}`;
+
+    if (inFlightVizRef.current.has(cacheKey)) return; // avoid duplicate concurrent requests
+    inFlightVizRef.current.add(cacheKey);
 
     const req = buildVizRequest(type, tab, params);
     if (!req) {
-      setVizError((v) => ({ ...v, [cacheKey]: "Not applicable for this option type." }));
+      if (runIdRef.current === runId) {
+        setVizError((v) => ({ ...v, [cacheKey]: "Not applicable for this option type." }));
+      }
+      inFlightVizRef.current.delete(cacheKey);
       return;
     }
 
-    setVizLoading((v) => ({ ...v, [cacheKey]: true }));
-    setVizError((v) => ({ ...v, [cacheKey]: "" }));
+    if (runIdRef.current === runId) {
+      setVizLoading((v) => ({ ...v, [cacheKey]: true }));
+      setVizError((v) => ({ ...v, [cacheKey]: "" }));
+    }
     try {
       if (req.kind === "multi-image") {
         const paths = req.path.split(",");
         const results = await Promise.all(paths.map((p) => fetchJSON(p, req.params)));
-        setVizData((v) => ({ ...v, [cacheKey]: { kind: req.kind, images: results.map((r) => r.data.image) } }));
+        if (runIdRef.current === runId) {
+          setVizData((v) => ({ ...v, [cacheKey]: { kind: req.kind, images: results.map((r) => r.data.image) } }));
+        }
       } else {
         const { data } = await fetchJSON(req.path, req.params);
-        setVizData((v) => ({ ...v, [cacheKey]: { kind: req.kind, ...data } }));
+        if (runIdRef.current === runId) {
+          setVizData((v) => ({ ...v, [cacheKey]: { kind: req.kind, ...data } }));
+        }
       }
     } catch (e) {
-      setVizError((v) => ({ ...v, [cacheKey]: errMsg(e) }));
+      if (runIdRef.current === runId) {
+        setVizError((v) => ({ ...v, [cacheKey]: errMsg(e) }));
+      }
     } finally {
-      setVizLoading((v) => ({ ...v, [cacheKey]: false }));
+      if (runIdRef.current === runId) {
+        setVizLoading((v) => ({ ...v, [cacheKey]: false }));
+      }
+      inFlightVizRef.current.delete(cacheKey);
     }
   };
 
-  const runSimulation = () => {
+  const runSimulation = async () => {
+    // Start a new run generation; any still-running requests from a previous
+    // run will see a mismatched runId and stop writing to state (cancellation).
+    runIdRef.current += 1;
+    const runId = runIdRef.current;
+    inFlightVizRef.current.clear();
+
     setPriceResults({});
     setPriceError({});
     setGreeks(null);
@@ -409,37 +470,74 @@ export default function QuantLab(_props: { prefills?: Record<string, unknown>; c
     setVizData({});
     setVizError({});
     setLastSolver(MODEL_CONFIG[optionType].map((m) => m.label).join(", "));
+    setPage("results");
 
     const base = { S: params.S, K: params.K, T: params.T, r: params.r, sigma: params.sigma };
 
-    MODEL_CONFIG[optionType].forEach((m) => {
-      setPriceLoading((p) => ({ ...p, [m.key]: true }));
-      fetchJSON(`/api/price/${optionType}`, { ...base, ...priceExtraParams(optionType, m.key, params) })
-        .then(({ data, ms }) => setPriceResults((p) => ({ ...p, [m.key]: { ...data, ms } })))
-        .catch((e) => setPriceError((p) => ({ ...p, [m.key]: errMsg(e) })))
-        .finally(() => setPriceLoading((p) => ({ ...p, [m.key]: false })));
-    });
-
-    if (optionType === "european") {
-      setGreeksLoading(true);
-      fetchJSON("/api/greeks", base)
-        .then(({ data }) => setGreeks(data))
-        .catch((e) => setGreeksError(errMsg(e)))
-        .finally(() => setGreeksLoading(false));
-    }
-
-    // Fetch every visualization card applicable to this option type, independently.
-    VIZ_CARDS[optionType].forEach((card) => loadTab(card.tab));
-
+    // Kick off the backend health check in parallel; it's independent of the
+    // pricing/Greeks/viz pipeline and doesn't compete for pricing capacity.
     const start = performance.now();
     fetch(`${API_BASE}/api/health`)
       .then((res) => {
+        if (runIdRef.current !== runId) return;
         setExecStatus(res.ok ? "online" : "offline");
         setExecLatency(Math.round(performance.now() - start));
       })
-      .catch(() => setExecStatus("offline"));
+      .catch(() => {
+        if (runIdRef.current === runId) setExecStatus("offline");
+      });
 
-    setPage("results");
+    // 1) Pricing requests run first, together, and we wait for all of them
+    //    (success or failure) before moving on.
+    await Promise.allSettled(
+      MODEL_CONFIG[optionType].map((m) => {
+        if (runIdRef.current === runId) {
+          setPriceLoading((p) => ({ ...p, [m.key]: true }));
+        }
+        return fetchJSON(`/api/price/${optionType}`, { ...base, ...priceExtraParams(optionType, m.key, params) })
+          .then(({ data, ms }) => {
+            if (runIdRef.current === runId) {
+              setPriceResults((p) => ({ ...p, [m.key]: { ...data, ms } }));
+            }
+          })
+          .catch((e) => {
+            if (runIdRef.current === runId) {
+              setPriceError((p) => ({ ...p, [m.key]: errMsg(e) }));
+            }
+          })
+          .finally(() => {
+            if (runIdRef.current === runId) {
+              setPriceLoading((p) => ({ ...p, [m.key]: false }));
+            }
+          });
+      })
+    );
+
+    if (runIdRef.current !== runId) return; // superseded by a newer run
+
+    // 2) Greeks run only after pricing has finished.
+    if (optionType === "european") {
+      setGreeksLoading(true);
+      await fetchJSON("/api/greeks", base)
+        .then(({ data }) => {
+          if (runIdRef.current === runId) setGreeks(data);
+        })
+        .catch((e) => {
+          if (runIdRef.current === runId) setGreeksError(errMsg(e));
+        })
+        .finally(() => {
+          if (runIdRef.current === runId) setGreeksLoading(false);
+        });
+    }
+
+    if (runIdRef.current !== runId) return; // superseded by a newer run
+
+    // 3) Visualizations start only after pricing + Greeks are done, and run
+    //    with at most VIZ_CONCURRENCY_LIMIT requests in flight at a time.
+    //    Each card is fully independent (own loading/error state), so one
+    //    failing never blocks or affects the others.
+    const vizTasks = VIZ_CARDS[optionType].map((card) => () => loadTab(card.tab, runId));
+    await runWithConcurrencyLimit(vizTasks, VIZ_CONCURRENCY_LIMIT);
   };
 
   const renderConfigPage = () => (
