@@ -100,7 +100,13 @@ def viz_convergence_mc(S: float, K: float, T: float, r: float, sigma: float):
     # memory-constrained Railway container and crashing the whole backend
     # process. Left as the package's own default for other consumers of
     # option_pricing — this cap is portal-specific.
-    fig = ConvergenceAnalysis(S, K, T, r, sigma).plot("mc", mc_path_counts=[100, 500, 1000, 5000, 10000, 20000])
+    fig = ConvergenceAnalysis(S, K, T, r, sigma).plot("mc", mc_path_counts=[
+    100,
+    250,
+    500,
+    1000,
+    2000,
+])
     return {"image": fig_to_base64(fig)}
 
 
@@ -113,7 +119,7 @@ def viz_convergence_binomial(S: float, K: float, T: float, r: float, sigma: floa
 # ---------------- Monte Carlo paths / distribution ----------------
 
 @router.get("/montecarlo/paths")
-def viz_mc_paths(S: float, K: float, T: float, r: float, sigma: float, N: int, M: int, num_paths: int = 50):
+def viz_mc_paths(S: float, K: float, T: float, r: float, sigma: float, N: int, M: int, num_paths: int = 20):
     fig = MonteCarloVisualization(S, K, T, r, sigma, N, M).plot("paths", num_paths=num_paths)
     return {"image": fig_to_base64(fig)}
 
@@ -127,7 +133,7 @@ def viz_mc_distribution(S: float, K: float, T: float, r: float, sigma: float, N:
 @router.get("/montecarlo/barrier-paths")
 def viz_mc_barrier_paths(
     S: float, K: float, T: float, r: float, sigma: float, N: int, M: int,
-    H: float, barrier_type: str, num_paths: int = 50,
+    H: float, barrier_type: str, num_paths: int = 20,
 ):
     fig = MonteCarloVisualization(S, K, T, r, sigma, N, M).plot(
         "barrier", num_paths=num_paths, H=H, barrier_type=barrier_type
