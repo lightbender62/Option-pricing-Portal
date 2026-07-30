@@ -6,6 +6,7 @@ import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'rec
 
 interface HomeProps {
   setActivePage: (page: 'home' | 'models' | 'docs' | 'lab') => void;
+  setLabPrefills: (prefills: any) => void;
 }
 
 const teamMembers = [
