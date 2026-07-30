@@ -79,7 +79,6 @@ const MODEL_CONFIG: Record<OptionType, ModelDef[]> = {
   european: [
     { key: "black_scholes", label: "Black-Scholes", summary: "Closed-form analytical solution" },
     { key: "binomial", label: "Binomial Tree", summary: "Lattice-based numerical method" },
-    { key: "montecarlo", label: "Monte Carlo", summary: "Simulation-based pricing" },
   ],
   american: [
     { key: "binomial", label: "Binomial Tree", summary: "Supports early exercise, no closed form exists" },
