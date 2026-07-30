@@ -401,7 +401,7 @@ export default function QuantLab(_props: { prefills?: Record<string, unknown>; c
     }
   };
 
-  const runSimulation = () => {
+  const runSimulation = async () => {
     setPriceResults({});
     setPriceError({});
     setGreeks(null);
@@ -429,7 +429,9 @@ export default function QuantLab(_props: { prefills?: Record<string, unknown>; c
     }
 
     // Fetch every visualization card applicable to this option type, independently.
-    VIZ_CARDS[optionType].forEach((card) => loadTab(card.tab));
+    for (const card of VIZ_CARDS[optionType]) {
+      await loadTab(card.tab);
+    }
 
     const start = performance.now();
     fetch(`${API_BASE}/api/health`)
