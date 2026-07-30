@@ -14,7 +14,7 @@ router = APIRouter(prefix="/api/price", tags=["pricing"])
 @router.get("/european")
 def price_european(
     S: float, K: float, T: float, r: float, sigma: float,
-    model: str = "black_scholes", steps: int = 500, paths: int = 100000,
+    model: str = "black_scholes", steps: int = 252, paths: int = 10000,
 ):
     """model: 'black_scholes' | 'binomial' | 'montecarlo'"""
     opt = EuropeanOption(S, K, T, r, sigma)
