@@ -1,4 +1,3 @@
-
 # Option Pricing Portal
 
 [![React](https://img.shields.io/badge/React-19-61DAFB)](#)
@@ -181,7 +180,7 @@ cd backend
 python -m venv .venv
 source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
-uvicorn main:app --reload
+uvicorn app.main:app --reload
 ```
 
 ### Frontend
@@ -215,17 +214,23 @@ npm run dev
 ```text
 option-pricing-portal/
 ├── backend/
-│   ├── routers/
-│   ├── schemas/
-│   ├── services/
-│   └── main.py
+│   ├── app/
+│   │   ├── routers/
+│   │   │   ├── pricing.py
+│   │   │   ├── greeks.py
+│   │   │   ├── viz.py
+│   │   │   └── meta.py
+│   │   ├── utils/
+│   │   │   └── figures.py
+│   │   └── main.py
+│   ├── modal_app.py
+│   └── requirements.txt
 ├── frontend/
 │   ├── src/
 │   │   ├── components/
 │   │   ├── pages/
-│   │   ├── hooks/
-│   │   ├── assets/
-│   │   └── lib/
+│   │   ├── utils/
+│   │   └── assets/
 │   └── public/
 ├── images/
 ├── README.md
@@ -238,14 +243,18 @@ option-pricing-portal/
 
 | Method | Endpoint | Purpose |
 |--------|----------|---------|
-| POST | `/price/black-scholes` | Black–Scholes pricing |
-| POST | `/price/binomial` | Binomial Tree pricing |
-| POST | `/price/monte-carlo` | Monte Carlo pricing |
-| POST | `/greeks` | Compute Greeks |
-| POST | `/implied-volatility` | Estimate implied volatility |
+| GET | `/api/price/european` | European option pricing (model: black_scholes / binomial / montecarlo) |
+| GET | `/api/price/american` | American option pricing (Binomial Tree, early exercise) |
+| GET | `/api/price/asian` | Asian option pricing (Monte Carlo) |
+| GET | `/api/price/barrier` | Barrier option pricing (Monte Carlo) |
+| GET | `/api/price/lookback` | Lookback option pricing (Monte Carlo) |
+| GET | `/api/greeks` | Compute Delta, Gamma, Theta, Vega, Rho |
+| GET | `/api/greeks/implied-volatility` | Estimate implied volatility |
+| GET | `/api/viz/*` | Pricing curves, Greeks profiles, convergence, Monte Carlo paths/distributions, payoff diagrams, volatility smile/surface |
+| GET | `/api/meta/option-types` | List supported option types |
+| GET | `/api/health` | Health check |
 | GET | `/docs` | Swagger UI |
 | GET | `/openapi.json` | OpenAPI schema |
-| GET | `/health` | Health check |
 
 ---
 
