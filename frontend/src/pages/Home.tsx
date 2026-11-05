@@ -23,9 +23,9 @@ const teamMembers = [
 
   {
     name: "Prasad",
-    role: "Research & Validation",
+    role: "Frontend & User Experience",
     description:
-      "Contributed to model analysis, testing workflows, and validation of pricing techniques and results.",
+      "Focused on interface design, usability, and building an accessible experience for the web portal.",
     image:
       "https://c4.wallpaperflare.com/wallpaper/791/830/381/vagabond-miyamoto-musashi-sky-peace-katana-hd-wallpaper-preview.jpg",
     github: "https://github.com/ce250004051",
@@ -46,9 +46,9 @@ const teamMembers = [
 
   {
     name: "Soham",
-    role: "Frontend & User Experience",
+    role: "Research & Validation ",
     description:
-      "Focused on interface design, usability, and building an accessible experience for the web portal.",
+      "Contributed to model analysis, testing workflows, and validation of pricing techniques and results.",
     image:
       "https://images6.alphacoders.com/107/thumb-1920-1073087.jpg",
     github: "https://github.com/aspiringchoker",
